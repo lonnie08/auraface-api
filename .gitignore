@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# MediaPipe models (downloaded automatically)
+*.task
+
+# Model weights (proprietary)
+weights/
+*.pth
+*.pt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Railway
+railway.json
