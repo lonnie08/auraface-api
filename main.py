@@ -99,6 +99,12 @@ load_beauty_model()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+
+# OpenAI API (ChatGPT) configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
 ROAST_TIMEOUT_MS = max(1, int(os.getenv("ROAST_TIMEOUT_MS", "12000")))
 
 ALLOWED_ROAST_MODES = {"gentle", "brutal"}
@@ -122,6 +128,7 @@ class RoastRequest(BaseModel):
     mode: Literal["gentle", "brutal"]
     face_data: RoastFaceData
     lang: str = "en"
+    provider: Literal["deepseek", "openai"] = "openai"  # Default to OpenAI
 
 
 class RoastResponse(BaseModel):
@@ -246,6 +253,109 @@ async def fetch_deepseek_roast(payload: RoastRequest) -> str:
     except ValueError as exc:
         logging.error("/api/roast invalid provider payload mode=%s err=%s", payload.mode, str(exc))
         raise HTTPException(502, "Roast provider returned an invalid response")
+
+
+# ========== OpenAI (ChatGPT) Functions ==========
+
+async def fetch_openai_response(prompt: str, system_prompt: str = "You are a helpful assistant.", max_tokens: int = 200, temperature: float = 0.9) -> str:
+    """Call OpenAI API (ChatGPT)"""
+    if not OPENAI_API_KEY:
+        raise HTTPException(503, "OpenAI service is not configured")
+
+    url = f"{OPENAI_BASE_URL}/chat/completions"
+    body = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=ROAST_TIMEOUT_MS / 1000.0) as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+    except httpx.TimeoutException:
+        logging.warning("OpenAI API timeout")
+        raise HTTPException(504, "OpenAI request timed out")
+    except httpx.HTTPError as exc:
+        logging.error("OpenAI API request failed: %s", exc.__class__.__name__)
+        raise HTTPException(502, "OpenAI request failed")
+
+    if response.status_code != 200:
+        logging.warning("OpenAI API bad status: %s", response.status_code)
+        raise HTTPException(502, "OpenAI returned an invalid response")
+
+    try:
+        data = response.json()
+        return extract_deepseek_text(data)
+    except ValueError as exc:
+        logging.error("OpenAI invalid payload: %s", str(exc))
+        raise HTTPException(502, "OpenAI returned an invalid response")
+
+
+# ========== Translation ==========
+
+class TranslateRequest(BaseModel):
+    text: str
+    source_lang: str = "auto"
+    target_lang: str = "en"
+
+
+class TranslateResponse(BaseModel):
+    translated_text: str
+    detected_lang: str = "en"
+
+
+SUPPORTED_LANGUAGES = {
+    "en": "English",
+    "zh": "Chinese",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "ar": "Arabic",
+    "hi": "Hindi",
+}
+
+
+async def translate_text(text: str, target_lang: str = "en", source_lang: str = "auto") -> tuple[str, str]:
+    """Translate text using OpenAI API"""
+
+    if not OPENAI_API_KEY:
+        # Fallback: return original text if no API key
+        raise HTTPException(503, "Translation service requires OpenAI API key")
+
+    target_name = SUPPORTED_LANGUAGES.get(target_lang, "English")
+    source_name = "the source language" if source_lang == "auto" else SUPPORTED_LANGUAGES.get(source_lang, "the source language")
+
+    system_prompt = f"You are a professional translator. Translate the following text from {source_name} to {target_name}. Only output the translated text, nothing else."
+
+    try:
+        translated = await fetch_openai_response(
+            prompt=text,
+            system_prompt=system_prompt,
+            max_tokens=1000,
+            temperature=0.3
+        )
+        # Simple language detection
+        detected = target_lang  # Default to target, actual detection would require more logic
+        return translated, detected
+    except Exception as e:
+        logging.error("Translation failed: %s", str(e))
+        raise HTTPException(500, f"Translation failed: {str(e)}")
 
 
 
@@ -502,8 +612,42 @@ async def roast_face(payload_raw: Dict[str, Any]):
         raise HTTPException(400, "Invalid roast payload")
 
     validate_roast_payload(payload)
-    comment = await fetch_deepseek_roast(payload)
+
+    # Choose provider based on request
+    if payload.provider == "openai":
+        comment = await fetch_openai_response(
+            prompt=build_roast_user_prompt(payload),
+            system_prompt=ROAST_SYSTEM_PROMPT,
+            max_tokens=180,
+            temperature=0.9
+        )
+    else:
+        comment = await fetch_deepseek_roast(payload)
+
     return RoastResponse(comment=comment)
+
+
+@app.post("/api/translate", response_model=TranslateResponse)
+async def translate(payload: TranslateRequest):
+    """Translate text between languages"""
+    if not payload.text or not payload.text.strip():
+        raise HTTPException(400, "Text is required")
+
+    try:
+        translated, detected = await translate_text(
+            text=payload.text,
+            target_lang=payload.target_lang,
+            source_lang=payload.source_lang
+        )
+        return TranslateResponse(
+            translated_text=translated,
+            detected_lang=detected
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error("/api/translate error: %s", str(e))
+        raise HTTPException(500, "Translation failed")
 
 
 @app.get("/health")

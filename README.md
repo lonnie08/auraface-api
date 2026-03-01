@@ -299,12 +299,68 @@ symmetry_score = 100 - abs(left_eye_x - right_eye_x) * 100
 
 ## 环境变量
 
-| 变量 | 必需 | 描述 |
-|------|------|------|
-| `DEEPSEEK_API_KEY` | 否 | DeepSeek API Key，用于 AI 吐槽功能 |
-| `DEEPSEEK_BASE_URL` | 否 | DeepSeek API 地址（默认：https://api.deepseek.com）|
-| `DEEPSEEK_MODEL` | 否 | 模型名称（默认：deepseek-chat）|
-| `ROAST_TIMEOUT_MS` | 否 | API 超时时间（毫秒，默认：12000）|
+### AI 服务配置
+
+| 变量 | 必需 | 描述 | 默认值 |
+|------|------|------|--------|
+| `DEEPSEEK_API_KEY` | 否 | DeepSeek API Key | - |
+| `DEEPSEEK_BASE_URL` | 否 | DeepSeek API 地址 | https://api.deepseek.com |
+| `DEEPSEEK_MODEL` | 否 | DeepSeek 模型名称 | deepseek-chat |
+| `OPENAI_API_KEY` | 否 | OpenAI (ChatGPT) API Key | - |
+| `OPENAI_BASE_URL` | 否 | OpenAI API 地址 | https://api.openai.com/v1 |
+| `OPENAI_MODEL` | 否 | OpenAI 模型名称 | gpt-4o-mini |
+| `ROAST_TIMEOUT_MS` | 否 | API 超时时间（毫秒）| 12000 |
+
+### 支持的 AI 提供商
+
+- **OpenAI (ChatGPT)** - 默认推荐，支持翻译功能
+- **DeepSeek** - 备用选项
+
+---
+
+## API 端点 (更新)
+
+### POST /api/translate
+
+翻译端点，支持中英文等多种语言。
+
+**请求：**
+
+```bash
+curl -X POST "http://localhost:8000/api/translate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "你好，世界！",
+    "target_lang": "en",
+    "source_lang": "auto"
+  }'
+```
+
+**响应：**
+
+```json
+{
+  "translated_text": "Hello, World!",
+  "detected_lang": "zh"
+}
+```
+
+**支持的语言：**
+
+| 代码 | 语言 |
+|------|------|
+| en | English |
+| zh | Chinese |
+| es | Spanish |
+| fr | French |
+| de | German |
+| it | Italian |
+| pt | Portuguese |
+| ru | Russian |
+| ja | Japanese |
+| ko | Korean |
+| ar | Arabic |
+| hi | Hindi |
 
 ---
 
